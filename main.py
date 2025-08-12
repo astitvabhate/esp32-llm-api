@@ -15,11 +15,9 @@ if "GOOGLE_CREDENTIALS_JSON" in os.environ:
         temp_json_path = f.name
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_json_path
 else:
-    # Optional: raise error or warning if missing credentials
-    pass
+    raise RuntimeError("Missing GOOGLE_CREDENTIALS_JSON environment variable")
 
 speech_client = speech.SpeechClient()
-
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 @app.post("/parse")
@@ -91,7 +89,7 @@ Now, process this commentary: "{text}"
     groq_response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
         headers=headers,
-        data=json.dumps(payload)
+        json=payload  # use json= instead of manual dumps
     )
 
     if groq_response.status_code != 200:
@@ -100,21 +98,24 @@ Now, process this commentary: "{text}"
     try:
         content = groq_response.json()["choices"][0]["message"]["content"]
         parsed_json = json.loads(content)
-    except Exception:
-        return {"error": "Failed to parse LLM output", "raw": content}
+    except json.JSONDecodeError:
+        return {"error": "Failed to parse LLM output as JSON", "raw": content}
+    except Exception as e:
+        return {"error": str(e)}
 
     return parsed_json
-
-from fastapi import Request
 
 @app.post("/stt")
 async def stt_endpoint(request: Request):
     try:
         # Get raw audio bytes
         content = await request.body()
-
         if not content:
             return {"error": "No audio data received"}
+
+        # If sending WAV file, strip the first 44 bytes (WAV header)
+        if content[0:4] == b"RIFF":
+            content = content[44:]
 
         audio = speech.RecognitionAudio(content=content)
         config = speech.RecognitionConfig(
@@ -125,9 +126,7 @@ async def stt_endpoint(request: Request):
             enable_automatic_punctuation=True
         )
 
-        # Call Google STT
         response = speech_client.recognize(config=config, audio=audio)
-
         if not response.results:
             return {"transcript": ""}
 
