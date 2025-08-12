@@ -105,13 +105,17 @@ Now, process this commentary: "{text}"
 
     return parsed_json
 
+from fastapi import Request
+
 @app.post("/stt")
 async def stt_endpoint(request: Request):
     try:
-        # Read raw audio bytes from request body
+        # Get raw audio bytes
         content = await request.body()
 
-        # Prepare for Google Speech-to-Text
+        if not content:
+            return {"error": "No audio data received"}
+
         audio = speech.RecognitionAudio(content=content)
         config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
@@ -121,15 +125,15 @@ async def stt_endpoint(request: Request):
             enable_automatic_punctuation=True
         )
 
-        # Send to Google STT
+        # Call Google STT
         response = speech_client.recognize(config=config, audio=audio)
 
-        # No transcription found
         if not response.results:
             return {"transcript": ""}
 
-        # Join all results
-        transcript = " ".join([result.alternatives[0].transcript for result in response.results])
+        transcript = " ".join(
+            [result.alternatives[0].transcript for result in response.results]
+        )
         return {"transcript": transcript}
 
     except Exception as e:
