@@ -1,9 +1,24 @@
-from fastapi import FastAPI, Request
 import os
-import requests
 import json
+import tempfile
+import requests
+from fastapi import FastAPI, Request, UploadFile, File
+from google.cloud import speech
 
 app = FastAPI()
+
+# --- Handle Google Cloud credentials from env var on Render ---
+if "GOOGLE_CREDENTIALS_JSON" in os.environ:
+    creds_json = os.environ["GOOGLE_CREDENTIALS_JSON"]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as f:
+        f.write(creds_json.encode())
+        temp_json_path = f.name
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_json_path
+else:
+    # Optional: raise error or warning if missing credentials
+    pass
+
+speech_client = speech.SpeechClient()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
@@ -12,7 +27,6 @@ async def parse_command(req: Request):
     data = await req.json()
     text = data.get("text", "")
 
-    # Define the system prompt
     prompt = f"""
 You are a multilingual cricket commentary interpreter for a live scoring system.
 Your job is to deeply understand the cricket event described in the commentary, then output structured match data.
@@ -61,8 +75,6 @@ Example interpretations:
 Now, process this commentary: "{text}"
 """
 
-
-    # Call Groq API
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
@@ -85,7 +97,6 @@ Now, process this commentary: "{text}"
     if groq_response.status_code != 200:
         return {"error": "Groq API error", "details": groq_response.text}
 
-    # Extract the JSON from the model's output
     try:
         content = groq_response.json()["choices"][0]["message"]["content"]
         parsed_json = json.loads(content)
@@ -93,3 +104,35 @@ Now, process this commentary: "{text}"
         return {"error": "Failed to parse LLM output", "raw": content}
 
     return parsed_json
+
+@app.post("/stt")
+async def stt_endpoint(file: UploadFile = File(...)):
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp.write(await file.read())
+            tmp_path = tmp.name
+
+        with open(tmp_path, "rb") as audio_file:
+            content = audio_file.read()
+
+        audio = speech.RecognitionAudio(content=content)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=16000,
+            language_code="en-IN",
+            alternative_language_codes=["hi-IN", "mr-IN"],
+            enable_automatic_punctuation=True
+        )
+
+        response = speech_client.recognize(config=config, audio=audio)
+        os.remove(tmp_path)
+
+        if not response.results:
+            return {"transcript": ""}
+
+        transcript = " ".join([result.alternatives[0].transcript for result in response.results])
+        return {"transcript": transcript}
+
+    except Exception as e:
+        return {"error": str(e)}
