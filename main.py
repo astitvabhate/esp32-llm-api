@@ -106,16 +106,12 @@ Now, process this commentary: "{text}"
     return parsed_json
 
 @app.post("/stt")
-async def stt_endpoint(file: UploadFile = File(...)):
+async def stt_endpoint(request: Request):
     try:
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            tmp.write(await file.read())
-            tmp_path = tmp.name
+        # Read raw audio bytes from request body
+        content = await request.body()
 
-        with open(tmp_path, "rb") as audio_file:
-            content = audio_file.read()
-
+        # Prepare for Google Speech-to-Text
         audio = speech.RecognitionAudio(content=content)
         config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
@@ -125,12 +121,14 @@ async def stt_endpoint(file: UploadFile = File(...)):
             enable_automatic_punctuation=True
         )
 
+        # Send to Google STT
         response = speech_client.recognize(config=config, audio=audio)
-        os.remove(tmp_path)
 
+        # No transcription found
         if not response.results:
             return {"transcript": ""}
 
+        # Join all results
         transcript = " ".join([result.alternatives[0].transcript for result in response.results])
         return {"transcript": transcript}
 
