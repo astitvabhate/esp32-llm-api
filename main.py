@@ -14,15 +14,34 @@ async def parse_command(req: Request):
 
     # Define the system prompt
     prompt = f"""
-    You are a cricket match voice command parser.
-    Given this input: "{text}", output JSON only with:
-    {{
-      "event": "score" | "wicket" | "reset" | "other",
-      "runs": <integer>,
-      "extras": "wide" | "no ball" | null,
-      "dismissal": "bowled" | "caught" | "run out" | null
-    }}
-    """
+You are a multilingual cricket commentary interpreter for a live scoring system.
+Your job is to read what the commentator or person says, understand the cricket event described,
+and output structured match data.
+
+**Your reasoning process:**
+1. If commentary describes a ball going to or over the boundary → decide if it was a 4 (ground shot) or 6 (hit in the air without bounce).
+2. If commentary mentions a batsman being dismissed → event = "wicket" and fill dismissal type if known.
+3. If commentary mentions runs being taken → event = "score" and set runs accordingly.
+4. If extras (wide, no ball, bye, leg bye) are mentioned → set extras field.
+5. If it describes a reset, innings change, or restart → event = "reset".
+6. If unclear, event = "other".
+
+**Language handling:**
+- The commentary may be in English, Hindi, Marathi, Bengali, Tamil, or a mix (Hinglish).
+- Translate internally to English before understanding.
+- Focus on meaning, not exact words.
+
+**Output only this JSON**:
+{{
+  "event": "score" | "wicket" | "reset" | "other",
+  "runs": <integer>,
+  "extras": "wide" | "no ball" | "bye" | "leg bye" | null,
+  "dismissal": "bowled" | "caught" | "run out" | "stumped" | "lbw" | null
+}}
+
+Now, process this commentary: "{text}"
+"""
+
 
     # Call Groq API
     headers = {
