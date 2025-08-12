@@ -15,29 +15,48 @@ async def parse_command(req: Request):
     # Define the system prompt
     prompt = f"""
 You are a multilingual cricket commentary interpreter for a live scoring system.
-Your job is to read what the commentator or person says, understand the cricket event described,
-and output structured match data.
+Your job is to deeply understand the cricket event described in the commentary, then output structured match data.
 
-**Your reasoning process:**
-1. If commentary describes a ball going to or over the boundary → decide if it was a 4 (ground shot) or 6 (hit in the air without bounce).
-2. If commentary mentions a batsman being dismissed → event = "wicket" and fill dismissal type if known.
-3. If commentary mentions runs being taken → event = "score" and set runs accordingly.
-4. If extras (wide, no ball, bye, leg bye) are mentioned → set extras field.
-5. If it describes a reset, innings change, or restart → event = "reset".
-6. If unclear, event = "other".
+## Reasoning process
+1. Translate non-English commentary (Hindi, Marathi, Bengali, Tamil, Hinglish, etc.) to English internally.
+2. Understand the actual cricket event, even if phrased casually or as slang.
+3. Determine if it’s a scoring shot, wicket, reset, or other event.
+4. Break down complex situations into final scoring values (runs, extras, dismissal).
 
-**Language handling:**
-- The commentary may be in English, Hindi, Marathi, Bengali, Tamil, or a mix (Hinglish).
-- Translate internally to English before understanding.
-- Focus on meaning, not exact words.
+## Special rules for cricket:
+- Boundary rules:
+  - In air over the rope → 6 runs.
+  - After bounce and over rope → 4 runs.
+- Extras:
+  - Wide ball adds +1 run (plus any runs scored from it).
+  - No ball adds +1 run (plus any runs scored from it).
+  - Bye and leg bye runs count towards extras but not batsman runs.
+- Overthrows:
+  - Add overthrow runs to the runs actually taken.
+  - Example: "3 runs taken, plus overthrow for 2 more" → total runs = 5.
+- Free hits:
+  - Recognize "free hit" mention but it does not change scoring logic except no wicket on that ball.
+- Penalty runs:
+  - If mentioned (e.g., “5 penalty runs”), add directly to total runs.
+- Wickets:
+  - Recognize "bowled", "caught", "run out", "stumped", "lbw", "hit wicket".
+  - If type unclear, set dismissal = null.
 
-**Output only this JSON**:
+## Output only JSON:
 {{
   "event": "score" | "wicket" | "reset" | "other",
   "runs": <integer>,
   "extras": "wide" | "no ball" | "bye" | "leg bye" | null,
-  "dismissal": "bowled" | "caught" | "run out" | "stumped" | "lbw" | null
+  "dismissal": "bowled" | "caught" | "run out" | "stumped" | "lbw" | "hit wicket" | null
 }}
+
+Example interpretations:
+- "Ball goes over the boundary without bouncing" → {{ "event": "score", "runs": 6, "extras": null, "dismissal": null }}
+- "Three runs plus an overthrow for two more" → {{ "event": "score", "runs": 5, "extras": null, "dismissal": null }}
+- "Batsman is bowled" → {{ "event": "wicket", "runs": 0, "extras": null, "dismissal": "bowled" }}
+- "Wide ball and batsmen run two" → {{ "event": "score", "runs": 3, "extras": "wide", "dismissal": null }}
+- "No ball hit for four" → {{ "event": "score", "runs": 5, "extras": "no ball", "dismissal": null }}
+- "5 penalty runs to batting side" → {{ "event": "score", "runs": 5, "extras": null, "dismissal": null }}
 
 Now, process this commentary: "{text}"
 """
